@@ -1,7 +1,9 @@
 package com.example.capable.camera
 
 import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Matrix
+import android.graphics.Paint
 import android.util.Log
 import androidx.annotation.OptIn
 import androidx.camera.core.ExperimentalGetImage
@@ -52,13 +54,41 @@ class FrameAnalyzer(
                 bitmap
             }
 
-            frameProcessor.processFrame(rotatedBitmap, currentTime)
+            // Convert to RGB_565 then back to ARGB_8888 to ensure proper format for MediaPipe
+            // This strips alpha and ensures correct channel order
+            val rgbBitmap = convertToMediaPipeFormat(rotatedBitmap)
+
+            frameProcessor.processFrame(rgbBitmap, currentTime)
 
         } catch (e: Exception) {
             Log.e(TAG, "Frame processing error: ${e.message}", e)
         } finally {
             imageProxy.close()
         }
+    }
+
+    /**
+     * Convert bitmap to a format compatible with MediaPipe.
+     * MediaPipe expects ARGB_8888 with specific memory layout.
+     * We force a software bitmap copy to avoid hardware bitmap issues.
+     */
+    private fun convertToMediaPipeFormat(source: Bitmap): Bitmap {
+        // First, ensure we have a software bitmap (not hardware)
+        val softwareBitmap = if (source.config == Bitmap.Config.HARDWARE) {
+            source.copy(Bitmap.Config.ARGB_8888, false)
+        } else {
+            source
+        }
+        
+        // Create a fresh ARGB_8888 bitmap with proper memory layout
+        val result = Bitmap.createBitmap(softwareBitmap.width, softwareBitmap.height, Bitmap.Config.ARGB_8888)
+        
+        // Copy pixels to ensure proper format
+        val pixels = IntArray(softwareBitmap.width * softwareBitmap.height)
+        softwareBitmap.getPixels(pixels, 0, softwareBitmap.width, 0, 0, softwareBitmap.width, softwareBitmap.height)
+        result.setPixels(pixels, 0, result.width, 0, 0, result.width, result.height)
+        
+        return result
     }
 
     private fun rotateBitmap(bitmap: Bitmap, degrees: Float): Bitmap {

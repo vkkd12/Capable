@@ -23,7 +23,11 @@ class TTSManager(
 
     // Cooldown to prevent spam
     private var lastSpokenMessages = mutableMapOf<String, Long>()
-    private val messageCooldownMs = 2000L // Don't repeat same message within 2 seconds
+    private val messageCooldownMs = 5000L // Don't repeat same message within 5 seconds
+    
+    // Track last announcement time for any object to prevent rapid-fire announcements
+    private var lastAnyAnnouncementTime = 0L
+    private val minAnnouncementIntervalMs = 3000L // Minimum 3 seconds between any announcements
 
     init {
         tts = TextToSpeech(context, this)
@@ -79,9 +83,15 @@ class TTSManager(
             return
         }
 
-        // Check cooldown for this message
-        val messageKey = message.lowercase()
         val now = System.currentTimeMillis()
+        
+        // Check global announcement interval (except for CRITICAL)
+        if (priority != Priority.CRITICAL && now - lastAnyAnnouncementTime < minAnnouncementIntervalMs) {
+            return // Too soon since last announcement
+        }
+
+        // Check cooldown for this specific message
+        val messageKey = message.lowercase()
         val lastSpoken = lastSpokenMessages[messageKey] ?: 0
 
         if (now - lastSpoken < messageCooldownMs && priority != Priority.CRITICAL) {
@@ -89,19 +99,20 @@ class TTSManager(
         }
 
         lastSpokenMessages[messageKey] = now
+        lastAnyAnnouncementTime = now
 
         // Clean up old entries
-        lastSpokenMessages = lastSpokenMessages.filter { now - it.value < 10000 }.toMutableMap()
+        lastSpokenMessages = lastSpokenMessages.filter { now - it.value < 30000 }.toMutableMap()
 
         if (skipQueue || priority == Priority.CRITICAL) {
-            // Interrupt current speech for urgent messages
+            // Interrupt current speech for urgent messages only
             tts?.stop()
             speakImmediate(message, priority)
         } else if (!isSpeaking) {
             speakImmediate(message, priority)
-        } else {
-            pendingMessages.add(TTSMessage(message, priority))
         }
+        // Drop non-critical messages while speaking to prevent stutter/buildup
+        // Don't queue - this prevents the audio glitching from rapid detections
     }
 
     private fun speakImmediate(message: String, priority: Priority) {

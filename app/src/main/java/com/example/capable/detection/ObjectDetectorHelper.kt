@@ -100,6 +100,8 @@ class ObjectDetectorHelper(
 
     fun detect(bitmap: Bitmap): ObjectDetectorResult? {
         if (objectDetector == null) return null
+        
+        Log.d(TAG, "Detecting on bitmap: ${bitmap.width}x${bitmap.height}, config=${bitmap.config}")
 
         val mpImage = BitmapImageBuilder(bitmap).build()
         return objectDetector?.detect(mpImage)

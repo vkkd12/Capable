@@ -31,8 +31,37 @@ class HazardDetectionProcessor(
     private val dangerousObjects = setOf(
         "car", "truck", "bus", "motorcycle", "bicycle"
     )
+    
+    // Similar objects grouped together to prevent oscillation announcements
+    private val objectGroups = mapOf(
+        "bed" to "furniture",
+        "couch" to "furniture", 
+        "sofa" to "furniture",
+        "chair" to "seating",
+        "bench" to "seating",
+        "car" to "vehicle",
+        "truck" to "vehicle",
+        "bus" to "vehicle",
+        "motorcycle" to "vehicle",
+        "bicycle" to "vehicle"
+    )
 
     private var frameProcessCount = 0L
+    
+    // Detection stability tracking
+    private data class RegionDetection(
+        var label: String,
+        val group: String,
+        val direction: TTSManager.Direction,
+        var frameCount: Int = 1,
+        var lastSeenTime: Long = System.currentTimeMillis(),
+        var announced: Boolean = false
+    )
+    
+    private val activeRegions = mutableMapOf<TTSManager.Direction, RegionDetection>()
+    private val STABILITY_FRAMES = 3 // Require 3 consistent frames before announcing
+    private val REGION_TIMEOUT_MS = 2000L // Clear region after 2 seconds of not seeing it
+    private val REANNOUNCE_INTERVAL_MS = 8000L // Don't re-announce same region for 8 seconds
     
     override fun processFrame(bitmap: Bitmap, timestamp: Long) {
         try {
@@ -172,25 +201,75 @@ class HazardDetectionProcessor(
     }
 
     private fun announceHazards(hazards: List<DetectedHazard>) {
-        // Only announce the most important hazards to avoid spam
-        val toAnnounce = hazards
+        val now = System.currentTimeMillis()
+        
+        // Clean up stale regions
+        activeRegions.entries.removeIf { now - it.value.lastSeenTime > REGION_TIMEOUT_MS }
+        
+        // Track which directions have detections this frame
+        val currentDirections = mutableSetOf<TTSManager.Direction>()
+        
+        // Only consider hazards worth announcing
+        val relevantHazards = hazards
             .filter { it.distance != TTSManager.Distance.FAR || it.label in dangerousObjects }
-            .take(2) // Max 2 announcements at a time
-
-        for (hazard in toAnnounce) {
-            val priority = when {
-                hazard.distance == TTSManager.Distance.VERY_CLOSE -> TTSManager.Priority.CRITICAL
-                hazard.distance == TTSManager.Distance.CLOSE -> TTSManager.Priority.HIGH
-                hazard.label in dangerousObjects -> TTSManager.Priority.HIGH
-                else -> TTSManager.Priority.NORMAL
+            .take(2)
+        
+        for (hazard in relevantHazards) {
+            val direction = hazard.direction
+            val group = objectGroups[hazard.label] ?: hazard.label
+            currentDirections.add(direction)
+            
+            val existing = activeRegions[direction]
+            
+            if (existing != null) {
+                // Same group in same region - update tracking
+                if (existing.group == group) {
+                    existing.frameCount++
+                    existing.lastSeenTime = now
+                    existing.label = hazard.label // Update to latest label
+                    
+                    // Announce if stable and not recently announced
+                    if (existing.frameCount >= STABILITY_FRAMES && 
+                        (!existing.announced || now - existing.lastSeenTime > REANNOUNCE_INTERVAL_MS)) {
+                        
+                        if (!existing.announced) {
+                            doAnnounce(hazard)
+                            existing.announced = true
+                        }
+                    }
+                } else {
+                    // Different group - reset tracking (object changed)
+                    activeRegions[direction] = RegionDetection(
+                        label = hazard.label,
+                        group = group,
+                        direction = direction
+                    )
+                }
+            } else {
+                // New detection in this region
+                activeRegions[direction] = RegionDetection(
+                    label = hazard.label,
+                    group = group,
+                    direction = direction
+                )
             }
-
-            ttsManager.announceObject(
-                objectName = hazard.label,
-                distance = hazard.distance,
-                direction = hazard.direction
-            )
         }
+        
+        // Reset announced flag for regions that lost detection (object moved away)
+        activeRegions.forEach { (dir, region) ->
+            if (dir !in currentDirections) {
+                // Object left this region, allow re-announcement when it returns
+                region.frameCount = 0
+            }
+        }
+    }
+    
+    private fun doAnnounce(hazard: DetectedHazard) {
+        ttsManager.announceObject(
+            objectName = hazard.label,
+            distance = hazard.distance,
+            direction = hazard.direction
+        )
     }
 
     data class DetectedHazard(

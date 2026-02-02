@@ -168,10 +168,29 @@ private fun CameraPreview(
     val lifecycleOwner = LocalLifecycleOwner.current
 
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
+    var cameraProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
+
+    // Get camera provider once
+    LaunchedEffect(Unit) {
+        val future = ProcessCameraProvider.getInstance(context)
+        cameraProvider = future.get()
+    }
 
     DisposableEffect(Unit) {
         onDispose {
+            cameraProvider?.unbindAll()
             cameraExecutor.shutdown()
+        }
+    }
+
+    // Handle start/stop based on isActive
+    LaunchedEffect(isActive, hazardProcessor, cameraProvider) {
+        val provider = cameraProvider ?: return@LaunchedEffect
+        
+        if (!isActive || hazardProcessor == null) {
+            android.util.Log.d("CameraScreen", "Stopping detection - unbinding camera analysis")
+            provider.unbindAll()
+            return@LaunchedEffect
         }
     }
 
@@ -183,48 +202,45 @@ private fun CameraPreview(
         },
         modifier = modifier.fillMaxSize(),
         update = { previewView ->
+            val provider = cameraProvider
             android.util.Log.d("CameraScreen", "CameraPreview update: isActive=$isActive, hazardProcessor=${hazardProcessor != null}")
-            if (!isActive || hazardProcessor == null) return@AndroidView
+            if (!isActive || hazardProcessor == null || provider == null) {
+                // Unbind when stopped
+                provider?.unbindAll()
+                return@AndroidView
+            }
 
-            val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
-
-            cameraProviderFuture.addListener({
-                android.util.Log.d("CameraScreen", "Camera provider ready, binding camera...")
-                val cameraProvider = cameraProviderFuture.get()
-
-                val preview = Preview.Builder()
-                    .build()
-                    .also {
-                        it.surfaceProvider = previewView.surfaceProvider
-                    }
-
-                val imageAnalyzer = ImageAnalysis.Builder()
-                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                    .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
-                    .build()
-                    .also {
-                        it.setAnalyzer(
-                            cameraExecutor,
-                            FrameAnalyzer(hazardProcessor, targetFps = 10)
-                        )
-                    }
-
-                val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
-
-                try {
-                    cameraProvider.unbindAll()
-                    cameraProvider.bindToLifecycle(
-                        lifecycleOwner,
-                        cameraSelector,
-                        preview,
-                        imageAnalyzer
-                    )
-                    android.util.Log.i("CameraScreen", "Camera bound successfully")
-                } catch (e: Exception) {
-                    android.util.Log.e("CameraScreen", "Camera binding failed", e)
-                    e.printStackTrace()
+            val preview = Preview.Builder()
+                .build()
+                .also {
+                    it.surfaceProvider = previewView.surfaceProvider
                 }
-            }, ContextCompat.getMainExecutor(context))
+
+            val imageAnalyzer = ImageAnalysis.Builder()
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .build()
+                .also {
+                    it.setAnalyzer(
+                        cameraExecutor,
+                        FrameAnalyzer(hazardProcessor, targetFps = 10)
+                    )
+                }
+
+            val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+
+            try {
+                provider.unbindAll()
+                provider.bindToLifecycle(
+                    lifecycleOwner,
+                    cameraSelector,
+                    preview,
+                    imageAnalyzer
+                )
+                android.util.Log.i("CameraScreen", "Camera bound successfully")
+            } catch (e: Exception) {
+                android.util.Log.e("CameraScreen", "Camera binding failed", e)
+                e.printStackTrace()
+            }
         }
     )
 }
