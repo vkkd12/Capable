@@ -1,0 +1,36 @@
+To achieve fast performance in your app—ideally much faster than every 2 seconds per response—you need to target real-time or near-real-time inference (10–30 frames per second, or an update every 0.03–0.1 seconds) because a visually impaired person walking at normal speed (≈1.4 m/s) covers about 2.8 meters in 2 seconds. A 2-second delay would be too slow to reliably warn about close obstacles, approaching vehicles, or drop-offs.
+
+A 2-second cycle would only work for very distant hazards, but for practical safety, aim for at least 5–10 inferences per second (every 0.1–0.2 seconds) on mid-range modern phones, and 15–30+ FPS on flagship devices. This is fully achievable today with proper optimizations.
+
+Here’s how to make it fast:
+
+ 1. Choose Extremely Lightweight Models
+     - MediaPipe Object Detector or MediaPipe Solutions — Google’s pre-optimized tasks that run very fast out-of-the-box.
+     - For depth: Use MiDaS Small.
+
+ 2. Apply Model Optimizations
+   - Quantization: Convert models to INT8 (8-bit integers) instead of FP32/FP16. This can give 2–4× speedup with minimal accuracy loss.
+     - TensorFlow Lite: Use post-training quantization or quantization-aware training.
+     - Ultralytics YOLO: Export with `model.export(format='tflite', int8=True)`.
+   - Pruning and Distillation: Start with a pre-pruned nano model.
+   - Lower Input Resolution: Run at 320×320
+
+ 3. Use Hardware Acceleration
+   - Android:
+     - TensorFlow Lite GPU delegate or NNAPI delegate (for Neural Processing Unit on Qualcomm/Pixel/MediaTek chips).
+     - ML Kit uses acceleration automatically.
+
+ 4. Smart Frame Processing
+   - Don’t process every single camera frame — that drains battery unnecessarily.
+   - Instead:
+     - Process every 2–4 frames (e.g., at 15 FPS from a 60 FPS camera preview).
+     - Or use adaptive skipping: Process faster when motion is detected (via IMU sensors) or when potential hazards are present.
+     - Cache results: If nothing changed significantly (use simple frame differencing), reuse the previous detection.
+   - This easily gets you effective updates every 0.1–0.2 seconds while keeping battery reasonable.
+
+ 5. Optimize the Pipeline
+   - Run everything on-device (no cloud) for lowest latency.
+   - Use efficient camera access:
+     - Android: CameraX with ImageAnalysis.
+   - Multi-threading: Pre-process frames on a background thread, inference on GPU/ANE thread.
+   - Combine tasks: Use models that do object detection + depth in one pass if possible (e.g., some monocular depth + detection hybrids).
