@@ -36,7 +36,6 @@ fun CameraScreen(
     var detectedHazards by remember { mutableStateOf<List<HazardDetectionProcessor.DetectedHazard>>(emptyList()) }
     var isDetectionActive by remember { mutableStateOf(true) }
     var fps by remember { mutableStateOf(0f) }
-    var lastFrameTime by remember { mutableStateOf(0L) }
     var statusMessage by remember { mutableStateOf("Initializing...") }
     var isInitialized by remember { mutableStateOf(false) }
 
@@ -54,9 +53,11 @@ fun CameraScreen(
 
     // Initialize ML models in LaunchedEffect (off the main composition)
     LaunchedEffect(Unit) {
+        android.util.Log.d("CameraScreen", "Initializing ML models...")
         try {
             objectDetector = ObjectDetectorHelper(context)
             statusMessage = "Object detector ready"
+            android.util.Log.i("CameraScreen", "ObjectDetector initialized successfully")
         } catch (e: Exception) {
             statusMessage = "Detection unavailable: ${e.message?.take(50)}"
             android.util.Log.e("CameraScreen", "ObjectDetector init failed", e)
@@ -64,32 +65,45 @@ fun CameraScreen(
 
         try {
             depthEstimator = DepthEstimatorHelper(context)
+            android.util.Log.i("CameraScreen", "DepthEstimator initialized successfully")
         } catch (e: Exception) {
             // Depth estimation is optional, ignore errors
             android.util.Log.w("CameraScreen", "DepthEstimator init failed (optional)", e)
         }
 
         isInitialized = true
+        android.util.Log.d("CameraScreen", "ML models initialization complete")
     }
+
+    // FPS tracking state
+    var frameCount by remember { mutableIntStateOf(0) }
+    var lastFpsUpdateTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
     // Create hazard processor when detector is ready
     LaunchedEffect(objectDetector, isInitialized) {
         if (objectDetector != null && isInitialized) {
+            android.util.Log.d("CameraScreen", "Creating HazardDetectionProcessor...")
             hazardProcessor = HazardDetectionProcessor(
                 objectDetector = objectDetector!!,
                 depthEstimator = depthEstimator,
                 ttsManager = ttsManager,
                 onDetectionUpdate = { hazards ->
                     detectedHazards = hazards
-                    // Calculate FPS
+                    
+                    // Calculate FPS based on frame count over time
+                    frameCount++
                     val now = System.currentTimeMillis()
-                    if (lastFrameTime > 0) {
-                        val delta = now - lastFrameTime
-                        fps = 1000f / delta
+                    val elapsed = now - lastFpsUpdateTime
+                    if (elapsed >= 1000) {
+                        fps = frameCount * 1000f / elapsed
+                        frameCount = 0
+                        lastFpsUpdateTime = now
+                        android.util.Log.d("CameraScreen", "FPS: $fps, Hazards: ${hazards.size}")
                     }
-                    lastFrameTime = now
                 }
             )
+            statusMessage = "Ready - Point camera forward"
+            android.util.Log.i("CameraScreen", "HazardDetectionProcessor ready")
             ttsManager.speak("Capable started. Point camera forward to detect obstacles.")
         }
     }
@@ -169,11 +183,13 @@ private fun CameraPreview(
         },
         modifier = modifier.fillMaxSize(),
         update = { previewView ->
+            android.util.Log.d("CameraScreen", "CameraPreview update: isActive=$isActive, hazardProcessor=${hazardProcessor != null}")
             if (!isActive || hazardProcessor == null) return@AndroidView
 
             val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
 
             cameraProviderFuture.addListener({
+                android.util.Log.d("CameraScreen", "Camera provider ready, binding camera...")
                 val cameraProvider = cameraProviderFuture.get()
 
                 val preview = Preview.Builder()
@@ -203,7 +219,9 @@ private fun CameraPreview(
                         preview,
                         imageAnalyzer
                     )
+                    android.util.Log.i("CameraScreen", "Camera bound successfully")
                 } catch (e: Exception) {
+                    android.util.Log.e("CameraScreen", "Camera binding failed", e)
                     e.printStackTrace()
                 }
             }, ContextCompat.getMainExecutor(context))

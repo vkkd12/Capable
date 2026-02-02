@@ -32,8 +32,12 @@ class HazardDetectionProcessor(
         "car", "truck", "bus", "motorcycle", "bicycle"
     )
 
+    private var frameProcessCount = 0L
+    
     override fun processFrame(bitmap: Bitmap, timestamp: Long) {
         try {
+            frameProcessCount++
+            
             // Run object detection
             val detectionResult = objectDetector.detect(bitmap)
 
@@ -43,14 +47,19 @@ class HazardDetectionProcessor(
             // Process results
             val hazards = processDetections(detectionResult, depthMap, bitmap.width, bitmap.height)
 
-            // Update UI
+            // Update UI - this should trigger FPS calculation
             onDetectionUpdate(hazards)
 
             // Announce hazards via TTS
             announceHazards(hazards)
+            
+            // Log progress periodically
+            if (frameProcessCount % 30 == 0L) {
+                Log.d(TAG, "Processed $frameProcessCount frames, detected ${hazards.size} hazards")
+            }
 
         } catch (e: Exception) {
-            Log.e(TAG, "Processing error: ${e.message}")
+            Log.e(TAG, "Processing error: ${e.message}", e)
         }
     }
 
