@@ -35,6 +35,11 @@ class FrameAnalyzer(
         }
 
         lastProcessTime = currentTime
+        
+        // Log every 30 frames to confirm processing
+        if (frameCounter % 30 == 0L) {
+            Log.d(TAG, "Processing frame #$frameCounter at $currentTime")
+        }
 
         try {
             val bitmap = imageProxy.toBitmap()
@@ -50,7 +55,7 @@ class FrameAnalyzer(
             frameProcessor.processFrame(rotatedBitmap, currentTime)
 
         } catch (e: Exception) {
-            Log.e(TAG, "Frame processing error: ${e.message}")
+            Log.e(TAG, "Frame processing error: ${e.message}", e)
         } finally {
             imageProxy.close()
         }
