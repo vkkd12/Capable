@@ -1,11 +1,13 @@
 package com.example.capable.ui
 
+import android.graphics.Bitmap
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -15,6 +17,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -24,6 +27,9 @@ import com.example.capable.audio.TTSManager
 import com.example.capable.camera.FrameAnalyzer
 import com.example.capable.detection.DepthEstimatorHelper
 import com.example.capable.detection.ObjectDetectorHelper
+import com.example.capable.ocr.OCRManager
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.util.concurrent.Executors
 
 @Composable
@@ -50,6 +56,12 @@ fun CameraScreen(
     var objectDetector by remember { mutableStateOf<ObjectDetectorHelper?>(null) }
     var depthEstimator by remember { mutableStateOf<DepthEstimatorHelper?>(null) }
     var hazardProcessor by remember { mutableStateOf<HazardDetectionProcessor?>(null) }
+    
+    // OCR state
+    var isScanning by remember { mutableStateOf(false) }
+    var currentBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    val ocrManager = remember { OCRManager() }
+    val scope = rememberCoroutineScope()
 
     // Initialize ML models in LaunchedEffect (off the main composition)
     LaunchedEffect(Unit) {
@@ -100,6 +112,10 @@ fun CameraScreen(
                         lastFpsUpdateTime = now
                         android.util.Log.d("CameraScreen", "FPS: $fps, Hazards: ${hazards.size}")
                     }
+                },
+                onFrameCaptured = { bitmap ->
+                    // Store latest frame for OCR
+                    currentBitmap = bitmap
                 }
             )
             statusMessage = "Ready - Point camera forward"
@@ -112,11 +128,85 @@ fun CameraScreen(
         onDispose {
             objectDetector?.close()
             depthEstimator?.close()
+            ocrManager.close()
             ttsManager.shutdown()
         }
     }
+    
+    // Scanning voice loop - says "scanning" softly while OCR is processing
+    LaunchedEffect(isScanning) {
+        while (isScanning) {
+            ttsManager.speakSoft("scanning")
+            delay(1500L)
+        }
+    }
 
-    Box(modifier = modifier.fillMaxSize()) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .pointerInput(isScanning) {
+                detectTapGestures(
+                    onDoubleTap = {
+                        if (!isDetectionActive) {
+                            // Double-tap to resume detection (OCR done or stopped)
+                            android.util.Log.d("CameraScreen", "Double tap detected - resuming detection")
+                            isScanning = false
+                            ttsManager.stop()
+                            ttsManager.speak("Resuming detection", TTSManager.Priority.NORMAL)
+                            isDetectionActive = true
+                        } else {
+                            // Capture bitmap BEFORE stopping detection
+                            val capturedBitmap = currentBitmap?.copy(Bitmap.Config.ARGB_8888, false)
+                            
+                            // Stop object detection first
+                            isDetectionActive = false
+                            isScanning = true
+                            
+                            android.util.Log.d("CameraScreen", "Double tap detected - starting OCR, bitmap=${capturedBitmap != null}")
+                            
+                            scope.launch {
+                                // Small delay to let "scanning" start
+                                delay(500)
+                                
+                                if (capturedBitmap != null) {
+                                    ocrManager.processImage(
+                                        bitmap = capturedBitmap,
+                                        onResult = { text ->
+                                            isScanning = false
+                                            ttsManager.stop()
+                                            if (text.isNotEmpty()) {
+                                                // Limit text length for TTS
+                                                val readText = if (text.length > 500) {
+                                                    text.take(500) + "... text truncated"
+                                                } else {
+                                                    text
+                                                }
+                                                ttsManager.speak("Text found: $readText. Double tap to resume detection.", TTSManager.Priority.HIGH)
+                                            } else {
+                                                ttsManager.speak("No text detected. Double tap to resume detection.", TTSManager.Priority.NORMAL)
+                                            }
+                                            // Do NOT auto-resume, user must double-tap again
+                                        },
+                                        onError = { e ->
+                                            isScanning = false
+                                            ttsManager.stop()
+                                            ttsManager.speak("Could not read text. Double tap to resume detection.", TTSManager.Priority.NORMAL)
+                                            // Do NOT auto-resume, user must double-tap again
+                                            android.util.Log.e("CameraScreen", "OCR error", e)
+                                        }
+                                    )
+                                } else {
+                                    isScanning = false
+                                    ttsManager.stop()
+                                    ttsManager.speak("Camera not ready", TTSManager.Priority.NORMAL)
+                                    isDetectionActive = true // Resume object detection
+                                }
+                            }
+                        }
+                    }
+                )
+            }
+    ) {
         // Camera Preview
         CameraPreview(
             hazardProcessor = hazardProcessor,
@@ -169,6 +259,8 @@ private fun CameraPreview(
 
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
     var cameraProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
+    var isBound by remember { mutableStateOf(false) }
+    val previewViewRef = remember { mutableStateOf<PreviewView?>(null) }
 
     // Get camera provider once
     LaunchedEffect(Unit) {
@@ -183,33 +275,24 @@ private fun CameraPreview(
         }
     }
 
-    // Handle start/stop based on isActive
+    // Handle camera binding/unbinding based on isActive
     LaunchedEffect(isActive, hazardProcessor, cameraProvider) {
         val provider = cameraProvider ?: return@LaunchedEffect
+        val previewView = previewViewRef.value
         
         if (!isActive || hazardProcessor == null) {
-            android.util.Log.d("CameraScreen", "Stopping detection - unbinding camera analysis")
-            provider.unbindAll()
+            if (isBound) {
+                android.util.Log.d("CameraScreen", "STOPPING detection - unbinding camera")
+                provider.unbindAll()
+                isBound = false
+            }
             return@LaunchedEffect
         }
-    }
-
-    AndroidView(
-        factory = { ctx ->
-            PreviewView(ctx).apply {
-                implementationMode = PreviewView.ImplementationMode.PERFORMANCE
-            }
-        },
-        modifier = modifier.fillMaxSize(),
-        update = { previewView ->
-            val provider = cameraProvider
-            android.util.Log.d("CameraScreen", "CameraPreview update: isActive=$isActive, hazardProcessor=${hazardProcessor != null}")
-            if (!isActive || hazardProcessor == null || provider == null) {
-                // Unbind when stopped
-                provider?.unbindAll()
-                return@AndroidView
-            }
-
+        
+        // Need to bind camera
+        if (!isBound && previewView != null) {
+            android.util.Log.d("CameraScreen", "STARTING detection - binding camera")
+            
             val preview = Preview.Builder()
                 .build()
                 .also {
@@ -236,10 +319,27 @@ private fun CameraPreview(
                     preview,
                     imageAnalyzer
                 )
+                isBound = true
                 android.util.Log.i("CameraScreen", "Camera bound successfully")
             } catch (e: Exception) {
                 android.util.Log.e("CameraScreen", "Camera binding failed", e)
                 e.printStackTrace()
+            }
+        }
+    }
+
+    AndroidView(
+        factory = { ctx ->
+            PreviewView(ctx).apply {
+                implementationMode = PreviewView.ImplementationMode.PERFORMANCE
+                previewViewRef.value = this
+            }
+        },
+        modifier = modifier.fillMaxSize(),
+        update = { previewView ->
+            // Just update reference, binding handled by LaunchedEffect
+            if (previewViewRef.value != previewView) {
+                previewViewRef.value = previewView
             }
         }
     )

@@ -10,6 +10,26 @@ A real-time obstacle detection Android app that provides audio feedback to help 
 - **Smart Frame Processing**: Processes 10 FPS while camera runs at higher rates for smooth preview
 - **Priority-based Warnings**: Immediate alerts for vehicles and close obstacles
 
+## Technologies
+
+Core technologies and libraries used:
+
+- **Kotlin** — primary language
+- **Jetpack Compose** — UI
+- **CameraX** — camera capture & preview
+- **MediaPipe (EfficientDet‑Lite0, TFLite)** — real-time object detection
+- **TensorFlow Lite** — runtime for ML models (MiDaS optional depth)
+- **MiDaS (midas_small.tflite)** — optional depth-estimation model
+- **Android TextToSpeech (TTS)** — audio feedback with priority queue
+- **Kotlin Coroutines** — background/frame processing
+- **Android Jetpack** (Lifecycle, ViewModel, Navigation) — app architecture
+- **Gradle (Kotlin DSL)** — build system; Gradle wrapper included
+- **ProGuard / R8** — release shrinking/obfuscation (configured via `proguard-rules.pro`)
+
+Model files and third-party libraries are used under their respective licenses. Place any downloaded models into `app/src/main/assets/` (see below).
+
+---
+
 ## Setup Instructions
 
 ### 1. Download Required ML Models
@@ -22,6 +42,24 @@ Download MiDaS Small and place in `app/src/main/assets/`:
 https://github.com/isl-org/MiDaS/releases/download/v2_1/model-small.tflite
 ```
 Rename to: `midas_small.tflite`
+
+### 2. Build the Project
+
+On macOS / Linux:
+
+```bash
+./gradlew assembleDebug
+```
+
+On Windows (PowerShell / CMD):
+
+```powershell
+\.\gradlew.bat assembleDebug
+# or
+gradlew.bat assembleDebug
+```
+
+Or open the project in Android Studio and run the app from there.
 
 ### 2. Build the Project
 

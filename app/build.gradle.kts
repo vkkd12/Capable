@@ -72,6 +72,9 @@ dependencies {
         exclude(group = "org.tensorflow", module = "tensorflow-lite-support-api")
     }
 
+    // ML Kit Text Recognition for OCR
+    implementation("com.google.mlkit:text-recognition:16.0.0")
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

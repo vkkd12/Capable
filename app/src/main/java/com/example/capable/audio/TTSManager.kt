@@ -166,6 +166,18 @@ class TTSManager(
         speak(message, priority, skipQueue = distance == Distance.VERY_CLOSE)
     }
 
+    /**
+     * Speak softly at lower volume - used for scanning feedback
+     */
+    fun speakSoft(text: String) {
+        if (!isInitialized || isSpeaking) return
+        
+        tts?.setSpeechRate(0.8f)
+        val params = android.os.Bundle()
+        val utteranceId = "soft_${System.currentTimeMillis()}"
+        tts?.speak(text, TextToSpeech.QUEUE_ADD, params, utteranceId)
+    }
+
     fun stop() {
         tts?.stop()
         pendingMessages.clear()
