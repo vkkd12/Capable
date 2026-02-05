@@ -15,3 +15,13 @@
 local.properties
 *.txt
 sss.md
+
+
+# IDEs
+.idea/
+*.iml
+.vscode/**/workspaceStorage/
+.vscode/*.code-workspace
+local.properties
+**/local.properties
+*.keystore
