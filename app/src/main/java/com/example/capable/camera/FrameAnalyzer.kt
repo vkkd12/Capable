@@ -56,7 +56,7 @@ class FrameAnalyzer(
 
             // Convert to RGB_565 then back to ARGB_8888 to ensure proper format for MediaPipe
             // This strips alpha and ensures correct channel order
-            val rgbBitmap = convertToMediaPipeFormat(rotatedBitmap)
+            val rgbBitmap = ensureSoftwareBitmap(rotatedBitmap)
 
             frameProcessor.processFrame(rgbBitmap, currentTime)
 
@@ -68,11 +68,10 @@ class FrameAnalyzer(
     }
 
     /**
-     * Convert bitmap to a format compatible with MediaPipe.
-     * MediaPipe expects ARGB_8888 with specific memory layout.
-     * We force a software bitmap copy to avoid hardware bitmap issues.
+     * Ensure the bitmap is a software-backed ARGB_8888 copy
+     * suitable for ONNX Runtime and ML model preprocessing.
      */
-    private fun convertToMediaPipeFormat(source: Bitmap): Bitmap {
+    private fun ensureSoftwareBitmap(source: Bitmap): Bitmap {
         // First, ensure we have a software bitmap (not hardware)
         val softwareBitmap = if (source.config == Bitmap.Config.HARDWARE) {
             source.copy(Bitmap.Config.ARGB_8888, false)

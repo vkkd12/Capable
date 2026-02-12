@@ -38,9 +38,9 @@ android {
         compose = true
     }
 
-    // Don't compress TFLite models
+    // Don't compress ONNX models
     androidResources {
-        noCompress += "tflite"
+        noCompress += listOf("onnx")
     }
 }
 
@@ -66,15 +66,8 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:1.4.1")
     implementation("androidx.camera:camera-view:1.4.1")
 
-    // MediaPipe for object detection
-    implementation("com.google.mediapipe:tasks-vision:0.10.21")
-
-    // TensorFlow Lite for depth estimation
-    implementation("org.tensorflow:tensorflow-lite:2.16.1")
-    implementation("org.tensorflow:tensorflow-lite-gpu:2.16.1")
-    implementation("org.tensorflow:tensorflow-lite-support:0.4.4") {
-        exclude(group = "org.tensorflow", module = "tensorflow-lite-support-api")
-    }
+    // ONNX Runtime for YOLOv8, Depth Anything V2, SegFormer
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.18.0")
 
     // ML Kit Text Recognition for OCR
     implementation("com.google.mlkit:text-recognition:16.0.0")

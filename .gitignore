@@ -18,6 +18,7 @@ sss.md
 
 
 # IDEs
+.github
 .idea/
 *.iml
 .vscode/**/workspaceStorage/

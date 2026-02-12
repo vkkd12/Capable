@@ -25,8 +25,9 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.capable.audio.TTSManager
 import com.example.capable.camera.FrameAnalyzer
-import com.example.capable.detection.DepthEstimatorHelper
-import com.example.capable.detection.ObjectDetectorHelper
+import com.example.capable.detection.DepthAnythingHelper
+import com.example.capable.detection.SegFormerHelper
+import com.example.capable.detection.YoloV8Detector
 import com.example.capable.ocr.OCRManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -59,9 +60,10 @@ fun CameraScreen(
         onTTSReady(ttsManager)
     }
 
-    // Lazy initialization of detectors to avoid crash during composition
-    var objectDetector by remember { mutableStateOf<ObjectDetectorHelper?>(null) }
-    var depthEstimator by remember { mutableStateOf<DepthEstimatorHelper?>(null) }
+    // Lazy initialization of ML models
+    var yoloDetector by remember { mutableStateOf<YoloV8Detector?>(null) }
+    var depthHelper by remember { mutableStateOf<DepthAnythingHelper?>(null) }
+    var segHelper by remember { mutableStateOf<SegFormerHelper?>(null) }
     var hazardProcessor by remember { mutableStateOf<HazardDetectionProcessor?>(null) }
     
     // OCR state
@@ -72,22 +74,28 @@ fun CameraScreen(
 
     // Initialize ML models in LaunchedEffect (off the main composition)
     LaunchedEffect(Unit) {
-        android.util.Log.d("CameraScreen", "Initializing ML models...")
+        android.util.Log.d("CameraScreen", "Initializing ML models (ONNX)...")
         try {
-            objectDetector = ObjectDetectorHelper(context)
-            statusMessage = "Object detector ready"
-            android.util.Log.i("CameraScreen", "ObjectDetector initialized successfully")
+            yoloDetector = YoloV8Detector(context)
+            statusMessage = "YOLOv8 ready"
+            android.util.Log.i("CameraScreen", "YOLOv8 Nano initialized")
         } catch (e: Exception) {
             statusMessage = "Detection unavailable: ${e.message?.take(50)}"
-            android.util.Log.e("CameraScreen", "ObjectDetector init failed", e)
+            android.util.Log.e("CameraScreen", "YOLOv8 init failed", e)
         }
 
         try {
-            depthEstimator = DepthEstimatorHelper(context)
-            android.util.Log.i("CameraScreen", "DepthEstimator initialized successfully")
+            depthHelper = DepthAnythingHelper(context)
+            android.util.Log.i("CameraScreen", "Depth Anything V2 initialized")
         } catch (e: Exception) {
-            // Depth estimation is optional, ignore errors
-            android.util.Log.w("CameraScreen", "DepthEstimator init failed (optional)", e)
+            android.util.Log.w("CameraScreen", "Depth Anything init failed (optional)", e)
+        }
+
+        try {
+            segHelper = SegFormerHelper(context)
+            android.util.Log.i("CameraScreen", "SegFormer B0 initialized")
+        } catch (e: Exception) {
+            android.util.Log.w("CameraScreen", "SegFormer init failed (optional)", e)
         }
 
         isInitialized = true
@@ -99,12 +107,13 @@ fun CameraScreen(
     var lastFpsUpdateTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
     // Create hazard processor when detector is ready
-    LaunchedEffect(objectDetector, isInitialized) {
-        if (objectDetector != null && isInitialized) {
+    LaunchedEffect(yoloDetector, isInitialized) {
+        if (yoloDetector != null && isInitialized) {
             android.util.Log.d("CameraScreen", "Creating HazardDetectionProcessor...")
             hazardProcessor = HazardDetectionProcessor(
-                objectDetector = objectDetector!!,
-                depthEstimator = depthEstimator,
+                detector = yoloDetector!!,
+                depthHelper = depthHelper,
+                segHelper = segHelper,
                 ttsManager = ttsManager,
                 onDetectionUpdate = { hazards ->
                     detectedHazards = hazards
@@ -133,8 +142,9 @@ fun CameraScreen(
 
     DisposableEffect(Unit) {
         onDispose {
-            objectDetector?.close()
-            depthEstimator?.close()
+            yoloDetector?.close()
+            depthHelper?.close()
+            segHelper?.close()
             ocrManager.close()
             ttsManager.shutdown()
         }
