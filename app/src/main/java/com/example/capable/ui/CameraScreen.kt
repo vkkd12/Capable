@@ -34,7 +34,9 @@ import java.util.concurrent.Executors
 
 @Composable
 fun CameraScreen(
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onNavigateToContacts: () -> Unit = {},
+    onTTSReady: (TTSManager) -> Unit = {}
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -50,6 +52,11 @@ fun CameraScreen(
         TTSManager(context) {
             statusMessage = "Ready - Point camera forward"
         }
+    }
+    
+    // Notify parent about TTS readiness for SOS
+    LaunchedEffect(ttsManager) {
+        onTTSReady(ttsManager)
     }
 
     // Lazy initialization of detectors to avoid crash during composition
@@ -241,6 +248,7 @@ fun CameraScreen(
                     ttsManager.speak(summary, TTSManager.Priority.NORMAL)
                 }
             },
+            onSosContacts = onNavigateToContacts,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
@@ -419,6 +427,7 @@ private fun ControlPanel(
     isActive: Boolean,
     onToggleDetection: () -> Unit,
     onSpeak: () -> Unit,
+    onSosContacts: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -446,6 +455,16 @@ private fun ControlPanel(
                 modifier = Modifier.size(80.dp)
             ) {
                 Text("Status")
+            }
+
+            Button(
+                onClick = onSosContacts,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFFFF5722)
+                ),
+                modifier = Modifier.size(80.dp)
+            ) {
+                Text("SOS", style = MaterialTheme.typography.labelLarge)
             }
         }
     }
