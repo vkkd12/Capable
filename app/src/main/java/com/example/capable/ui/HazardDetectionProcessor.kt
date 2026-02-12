@@ -92,9 +92,9 @@ class HazardDetectionProcessor(
     override fun processFrame(bitmap: Bitmap, timestamp: Long) {
         try {
             frameCount++
-            // Only copy bitmap every 5th frame for the overlay preview (avoids GC churn)
+            // Copy bitmap every 5th frame for OCR / overlay (safe copy for cross-thread use)
             if (frameCount % 5 == 0L) {
-                onFrameCaptured(bitmap)
+                onFrameCaptured(bitmap.copy(Bitmap.Config.ARGB_8888, false))
             }
 
             // ---- YOLOv8 (every frame, fast path) ----

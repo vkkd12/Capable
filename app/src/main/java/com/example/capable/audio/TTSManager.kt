@@ -17,16 +17,16 @@ class TTSManager(
 ) : TextToSpeech.OnInitListener {
 
     private var tts: TextToSpeech? = null
-    private var isInitialized = false
+    @Volatile private var isInitialized = false
     private val pendingMessages = ConcurrentLinkedQueue<TTSMessage>()
-    private var isSpeaking = false
+    @Volatile private var isSpeaking = false
 
     // Cooldown to prevent spam
     private var lastSpokenMessages = mutableMapOf<String, Long>()
     private val messageCooldownMs = 5000L // Don't repeat same message within 5 seconds
     
     // Track last announcement time for any object to prevent rapid-fire announcements
-    private var lastAnyAnnouncementTime = 0L
+    @Volatile private var lastAnyAnnouncementTime = 0L
     private val minAnnouncementIntervalMs = 3000L // Minimum 3 seconds between any announcements
 
     init {
